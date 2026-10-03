@@ -141,6 +141,7 @@ baseCfg =
   in  AppConfig
         { configAppSettings = [("app.settings.app_host", "localhost"), ("app.settings.external_api_secret", "0123456789abcdef")]
         , configClientErrorVerbosity = Verbose
+        , configClientErrorFormat = ErrorFormatPgrst
         , configDbAggregates = False
         , configDbAnonRole = Just "postgrest_test_anonymous"
         , configDbChannel = mempty

@@ -77,14 +77,15 @@ actionResponse (DbCrudResult plan@WrappedReadPlan{pMedia, wrHdrsOnly = headersOn
         )
       ]
         ++ cLHeader
-        ++ contentTypeHeaders pMedia ctxApiRequest
+        ++ (if status == HTTP.status416 then [rangeErrorType] else contentTypeHeaders pMedia ctxApiRequest)
         ++ prefHeader
+    (rangeErrorType, rangeErrorBody) =
+      Error.errorBody configClientErrorFormat configClientErrorVerbosity $
+        Error.ApiRequestErr $
+          Error.InvalidRange $
+            Error.OutOfBounds (show $ RangeQuery.rangeOffset iTopLevelRange) (maybe "0" show rsTableTotal)
     bod
-      | status == HTTP.status416 =
-          Error.errorPayload configClientErrorVerbosity $
-            Error.ApiRequestErr $
-              Error.InvalidRange $
-                Error.OutOfBounds (show $ RangeQuery.rangeOffset iTopLevelRange) (maybe "0" show rsTableTotal)
+      | status == HTTP.status416 = rangeErrorBody
       | headersOnly = mempty
       | otherwise = LBS.fromStrict rsBody
 
@@ -183,14 +184,13 @@ actionResponse (DbCrudResult plan@CallReadPlan{pMedia, crInvMthd = invMethod, cr
   let
     (status, contentRange) =
       RangeQuery.rangeStatusHeader iTopLevelRange rsQueryTotal rsTableTotal
+    (rangeErrorType, rangeErrorBody) =
+      Error.errorBody configClientErrorFormat configClientErrorVerbosity $
+        Error.ApiRequestErr $
+          Error.InvalidRange $
+            Error.OutOfBounds (show $ RangeQuery.rangeOffset iTopLevelRange) (maybe "0" show rsTableTotal)
     rsOrErrBody =
-      if status == HTTP.status416 then
-        Error.errorPayload configClientErrorVerbosity $
-          Error.ApiRequestErr $
-            Error.InvalidRange $
-              Error.OutOfBounds (show $ RangeQuery.rangeOffset iTopLevelRange) (maybe "0" show rsTableTotal)
-      else
-        LBS.fromStrict rsBody
+      if status == HTTP.status416 then rangeErrorBody else LBS.fromStrict rsBody
     isHeadMethod = invMethod == InvRead True
     prefHeader = maybeToList . prefAppliedHeader $ responsePreferences plan ctxApiRequest
     cLHeader = if isHeadMethod then mempty else [contentLengthHeader rsOrErrBody]
@@ -200,7 +200,7 @@ actionResponse (DbCrudResult plan@CallReadPlan{pMedia, crInvMthd = invMethod, cr
         (HTTP.status204, headers, mempty)
       else
         ( status
-        , headers ++ cLHeader ++ contentTypeHeaders pMedia ctxApiRequest
+        , headers ++ cLHeader ++ (if status == HTTP.status416 then [rangeErrorType] else contentTypeHeaders pMedia ctxApiRequest)
         , if isHeadMethod then mempty else rsOrErrBody
         )
 

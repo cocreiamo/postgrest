@@ -235,6 +235,34 @@ app.settings.*
 
   The :code:`current_setting` function has `an optional boolean second <https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-SET>`_ argument to avoid it from raising an error if the value was not defined. Default values to :code:`app.settings` can then be given by combining this argument with :code:`coalesce` and :code:`nullif` : :code:`coalesce(nullif(current_setting('app.settings.my_custom_variable', true), ''), 'default value')`. The use of :code:`nullif` is necessary because if set in a transaction, the setting is sometimes not "rolled back" to :code:`null`. See also :ref:`this section <guc_req_headers_cookies_claims>` for more information on this behaviour.
 
+.. _client-error-format:
+
+client-error-format
+-------------------
+
+  =============== =======================
+  **Type**        String
+  **Default**     pgrst
+  **Reloadable**  Y
+  **Environment** PGRST_CLIENT_ERROR_FORMAT
+  **In-Database** pgrst.client_error_format
+  =============== =======================
+
+  Specifies the body of PostgREST error responses.
+
+  .. code:: bash
+
+    # PostgREST's own JSON: "code", "message", "details" and "hint"
+    client-error-format = "pgrst"
+
+    # RFC 9457 problem details (application/problem+json): "type" (about:blank), "title" (the status phrase),
+    # "status", "detail" (the message) and the extension members "code", "details" and "hint"
+    client-error-format = "rfc9457"
+
+  With ``rfc9457``, the message object of a ``RAISE SQLSTATE 'PGRST'`` may carry ``type``, ``title``, ``instance``
+  and any extension member besides ``code``, ``message``, ``details`` and ``hint``: they are passed through.
+  :ref:`client-error-verbosity` applies to ``details`` and ``hint``.
+
 .. _client-error-verbosity:
 
 client-error-verbosity

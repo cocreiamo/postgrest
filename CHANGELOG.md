@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file. From versio
 
 ## Unreleased
 
+### Added
+
+- Add config `client-error-format = "rfc9457"` to answer errors as RFC 9457 problem details (`application/problem+json`); a `RAISE SQLSTATE 'PGRST'` message object can carry `type`, `title`, `instance` and extension members
+
 ## [16.4] - 2026-09-24
 
 ### Changes

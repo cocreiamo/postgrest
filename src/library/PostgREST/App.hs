@@ -168,7 +168,7 @@ postgrest appState connWorker =
       appConf@AppConfig{..} <- AppState.getConfig appState -- the config must be read again because it can reload
       maybeSchemaCache <- AppState.getSchemaCache appState
 
-      let handleError = fmap (either (Error.errorResponseFor configClientErrorVerbosity) identity)
+      let handleError = fmap (either (Error.errorResponseFor configClientErrorFormat configClientErrorVerbosity) identity)
 
       -- writer to save authRole (uses `tell` for this and `getLast` to obtain it)
       -- has to be before runExceptT to make sure role is not lost on error

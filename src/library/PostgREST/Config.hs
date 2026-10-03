@@ -26,6 +26,7 @@ module PostgREST.Config
   , exampleConfigFile
   , audMatchesCfg
   , Verbosity (..)
+  , ErrorFormat (..)
   )
 where
 
@@ -86,6 +87,7 @@ audMatchesCfg = maybe (const True) (==) . configJwtAudience
 data AppConfig = AppConfig
   { configAppSettings :: [(Text, Text)]
   , configClientErrorVerbosity :: Verbosity
+  , configClientErrorFormat :: ErrorFormat
   , configDbAggregates :: Bool
   , configDbAnonRole :: Maybe BS.ByteString
   , configDbChannel :: Text
@@ -159,6 +161,16 @@ dumpClientErrorVerbosity = \case
   Minimal -> "minimal"
   Verbose -> "verbose"
 
+-- | Body of the error responses: PostgREST's own or RFC 9457 problem details
+data ErrorFormat
+  = ErrorFormatPgrst
+  | ErrorFormatRfc9457
+
+dumpClientErrorFormat :: ErrorFormat -> Text
+dumpClientErrorFormat = \case
+  ErrorFormatPgrst -> "pgrst"
+  ErrorFormatRfc9457 -> "rfc9457"
+
 data OpenAPIMode = OAFollowPriv | OAIgnorePriv | OADisabled
   deriving (Eq)
 
@@ -176,7 +188,8 @@ toText conf =
     -- apply conf to all pgrst settings
     pgrstSettings =
       (\(k, v) -> (k, v conf))
-        <$> [ ("client-error-verbosity", q . dumpClientErrorVerbosity . configClientErrorVerbosity)
+        <$> [ ("client-error-format", q . dumpClientErrorFormat . configClientErrorFormat)
+            , ("client-error-verbosity", q . dumpClientErrorVerbosity . configClientErrorVerbosity)
             , ("db-aggregates-enabled", T.toLower . show . configDbAggregates)
             , ("db-anon-role", q . T.decodeUtf8 . fromMaybe "" . configDbAnonRole)
             , ("db-channel", q . configDbChannel)
@@ -293,6 +306,7 @@ parser optPath env dbSettings roleSettings roleIsolationLvl =
   AppConfig
     <$> parseAppSettings "app.settings"
     <*> parseErrorVerbosity "client-error-verbosity"
+    <*> parseErrorFormat "client-error-format"
     <*> (fromMaybe False <$> optBool "db-aggregates-enabled")
     <*> (fmap encodeUtf8 <$> optString "db-anon-role")
     <*> (fromMaybe "pgrst" <$> optString "db-channel")
@@ -374,6 +388,14 @@ parser optPath env dbSettings roleSettings roleIsolationLvl =
         Just "minimal" -> pure Minimal
         Just "verbose" -> pure Verbose
         Just _ -> fail "Invalid client-error-verbosity. Check your configuration."
+
+    parseErrorFormat :: C.Key -> C.Parser C.Config ErrorFormat
+    parseErrorFormat k =
+      optString k >>= \case
+        Nothing -> pure ErrorFormatPgrst -- default
+        Just "pgrst" -> pure ErrorFormatPgrst
+        Just "rfc9457" -> pure ErrorFormatRfc9457
+        Just _ -> fail "Invalid client-error-format. Check your configuration."
 
     parseAppSettings :: C.Key -> C.Parser C.Config [(Text, Text)]
     parseAppSettings key = addFromEnv . fmap (fmap coerceText) <$> C.subassocs key C.value

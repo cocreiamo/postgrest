@@ -19,6 +19,8 @@ where
 
 import Protolude
 
+import Data.Aeson qualified as JSON
+
 import Hasql.Pool qualified as SQL
 
 import PostgREST.MediaType (MediaType (..))
@@ -130,6 +132,7 @@ data PgRaiseErrMessage = PgRaiseErrMessage
   , getMessage :: Text
   , getDetails :: Maybe Text
   , getHint :: Maybe Text
+  , getMembers :: JSON.Object -- ^ any other member, for RFC 9457 bodies
   }
 
 data PgRaiseErrDetails = PgRaiseErrDetails

@@ -71,6 +71,7 @@ baseCfg =
   in  AppConfig
         { configAppSettings = []
         , configClientErrorVerbosity = Verbose
+        , configClientErrorFormat = ErrorFormatPgrst
         , configDbAggregates = False
         , configDbAnonRole = Just "postgrest_test_anonymous"
         , configDbChannel = mempty

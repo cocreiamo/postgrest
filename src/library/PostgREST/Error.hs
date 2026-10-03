@@ -29,6 +29,7 @@ import Network.Wai (Response, responseLBS)
 import Protolude
 
 import Data.Aeson qualified as JSON
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString.Char8 qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.CaseInsensitive qualified as CI
@@ -41,7 +42,7 @@ import Hasql.Pool qualified as SQL
 import Hasql.Session qualified as SQL
 import Network.HTTP.Types.Status qualified as HTTP
 
-import PostgREST.Config (Verbosity (..))
+import PostgREST.Config (ErrorFormat (..), Verbosity (..))
 import PostgREST.Error.Types
 import PostgREST.MediaType (MediaType (..))
 import PostgREST.SchemaCache (SchemaCache (SchemaCache, dbTablesFuzzyIndex))
@@ -80,15 +81,37 @@ errorPayload verb = JSON.encode . toJsonPgrstError verb
         , "message" .= message err
         ]
 
+-- | Encode Error as RFC 9457 problem details: "type" and "title" ("about:blank" and the status phrase unless the
+-- error carries them), "status", "detail" (the message) and, as extension members, "code" and, if verbose,
+-- "details" and "hint". A RAISE SQLSTATE 'PGRST' message object may carry any other member ("type", "title",
+-- "instance", extensions): they are passed through unchanged.
+problemPayload :: (ErrorBody a, ErrorHeaders a) => Verbosity -> a -> LByteString
+problemPayload verb err =
+  JSON.encode . JSON.Object $ members err <> KM.fromList (catMaybes standard)
+  where
+    st = status err
+    standard =
+      [ Just ("type", JSON.String "about:blank")
+      , Just ("title", JSON.String . T.decodeUtf8 $ HTTP.statusMessage st)
+      , Just ("status", JSON.toJSON $ HTTP.statusCode st)
+      , Just ("detail", JSON.String $ message err)
+      , Just ("code", JSON.String $ code err)
+      ]
+        <> case verb of
+          Verbose -> [("details",) <$> details err, ("hint",) <$> hint err]
+          Minimal -> []
+
 -- | Create HTTP response from Error
-errorResponseFor :: (ErrorBody a, ErrorHeaders a) => Verbosity -> a -> Response
-errorResponseFor verb err =
+errorResponseFor :: (ErrorBody a, ErrorHeaders a) => ErrorFormat -> Verbosity -> a -> Response
+errorResponseFor fmt verb err =
   let
-    baseHeader = MediaType.toContentType MTApplicationJSON
-    cLHeader body = (,) "Content-Length" (show $ LBS.length body) :: Header
+    (baseHeader, body) = case fmt of
+      ErrorFormatPgrst -> (MediaType.toContentType MTApplicationJSON, errorPayload verb err)
+      ErrorFormatRfc9457 -> (("Content-Type", "application/problem+json; charset=utf-8"), problemPayload verb err)
+    cLHeader = (,) "Content-Length" (show $ LBS.length body) :: Header
     pSHeader code' = ("Proxy-Status", "PostgREST; error=" <> T.encodeUtf8 code')
   in
-    responseLBS (status err) (baseHeader : cLHeader (errorPayload verb err) : pSHeader (code err) : headers err) $ errorPayload verb err
+    responseLBS (status err) (baseHeader : cLHeader : pSHeader (code err) : headers err) body
 
 class ErrorHeaders a where
   status :: a -> HTTP.Status
@@ -99,6 +122,10 @@ class ErrorBody a where
   message :: a -> Text
   details :: a -> Maybe JSON.Value
   hint :: a -> Maybe JSON.Value
+
+  -- | Members of the RFC 9457 body besides PostgREST's (only a RAISE SQLSTATE 'PGRST' sets them)
+  members :: a -> JSON.Object
+  members _ = mempty
 
 instance ErrorHeaders ApiRequestError where
   status AggregatesNotAllowed{} = HTTP.status400
@@ -475,6 +502,9 @@ instance ErrorBody PgError where
   message (PgError _ usageError) = message usageError
   details (PgError _ usageError) = details usageError
   hint (PgError _ usageError) = hint usageError
+  members (PgError _ (SQL.SessionUsageError (SQL.QueryError _ _ (SQL.ResultError (SQL.ServerError "PGRST" m d _ _))))) =
+    either (const mempty) (getMembers . fst) (parseRaisePGRST m d)
+  members _ = mempty
 
 instance ErrorBody SQL.UsageError where
   code (SQL.ConnectionUsageError _) = "PGRST000"
@@ -611,6 +641,9 @@ instance ErrorHeaders Error where
   headers NoSchemaCacheError = mempty
 
 instance ErrorBody Error where
+  members (PgErr err) = members err
+  members _ = mempty
+
   code (ApiRequestErr err) = code err
   code (SchemaCacheErr err) = code err
   code (JwtErr err) = code err
@@ -698,6 +731,7 @@ instance JSON.FromJSON PgRaiseErrMessage where
       <*> m .: "message"
       <*> m .:? "details"
       <*> m .:? "hint"
+      <*> pure (foldr KM.delete m ["code", "message", "details", "hint"])
   parseJSON _ = mzero
 
 instance JSON.FromJSON PgRaiseErrDetails where
